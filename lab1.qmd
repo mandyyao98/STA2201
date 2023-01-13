@@ -1,0 +1,80 @@
+---
+title: "Lab1"
+format: pdf
+editor: visual
+---
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+dm <- read_table("https://www.prdh.umontreal.ca/BDLC/data/ont/Mx_1x1.txt",
+                 skip = 2, col_types = "dcddd")
+# also read in data with Year column as double for question 3
+dmd <- read_table("https://www.prdh.umontreal.ca/BDLC/data/ont/Mx_1x1.txt",
+                 skip = 2, col_types = "ddddd")
+```
+
+## 1.
+
+```{r}
+# add ratio column to data
+pdata=dm %>% 
+  filter(Age==10|Age==20|Age==30|Age==40) %>% 
+  mutate(mf_ratio=Male/Female)
+# plot
+pdata %>% ggplot(aes(x=Year,y=mf_ratio,color=Age))+
+  geom_line()+theme_bw(base_size=14)+
+  labs(title="Ratio of Male to Female Mortality Rates Over Time",
+       subtitle="For Ages 10, 20, 30, and 40",
+       y="Male to Female Mortality Rates")
+
+```
+
+## 2.
+
+```{r}
+dm %>% group_by(Year) %>% filter(Female==max(Female,na.rm=TRUE)) %>% 
+  select(Year,Age)
+```
+
+## 3.
+
+```{r}
+dmd %>% group_by(Age) %>% 
+  summarize(across(c("Male","Female","Total"),sd,na.rm=TRUE)) 
+```
+
+## 4.
+
+```{r}
+#| message: false
+ps=read_table("https://www.prdh.umontreal.ca/BDLC/data/ont/Population.txt",
+              skip = 2, col_types = "dcddd")
+# reformat/rename columns 
+dm4=dm %>% select(Year:Male)
+ps=rename(ps,f_pop=Female,m_pop=Male)
+# combine mortality rate and population data to calculate deaths
+comb=dm4 %>% left_join(ps) %>% 
+  mutate(d_f=Female*f_pop,d_m=Male*m_pop)
+# calculate total deaths per year
+tot_deaths=comb %>% group_by(Year) %>% 
+  summarise(across(c("d_f","d_m"),sum,na.rm=TRUE))
+# calculate total populaton per year
+totals=ps %>% group_by(Year) %>% 
+  summarize(across(c("f_pop","m_pop"),sum,na.rm=TRUE))
+# rename columns
+totals=rename(totals,f_tot=f_pop,m_tot=m_pop)
+# calculate weighted average mortality rates
+pdata4=tot_deaths %>% left_join(totals) %>% 
+  mutate(female=d_f/f_tot,male=d_m/m_tot) %>% 
+  pivot_longer(female:male,names_to="Sex",values_to="Mortality")
+#plot
+pdata4 %>% ggplot(aes(x=Year,y=Mortality,color=Sex))+geom_line()+
+  labs(title="Population Weighted Average Mortality Rate Over Time",
+       subtitle="For Males and Females",
+       y="Population Weighted Average Mortality Rate Over Time")
+
+```
+
+From the plot, we can see that the population weighted average mortality rate generally decreases over time and that females tend to have a lower population weighted average mortality rate than males.
