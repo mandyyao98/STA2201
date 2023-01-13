@@ -18,6 +18,7 @@ dmd <- read_table("https://www.prdh.umontreal.ca/BDLC/data/ont/Mx_1x1.txt",
 ## 1.
 
 ```{r}
+#| out.width="70%"
 # add ratio column to data
 pdata=dm %>% 
   filter(Age==10|Age==20|Age==30|Age==40) %>% 
@@ -25,8 +26,8 @@ pdata=dm %>%
 # plot
 pdata %>% ggplot(aes(x=Year,y=mf_ratio,color=Age))+
   geom_line()+theme_bw(base_size=14)+
-  labs(title="Ratio of Male to Female Mortality Rates Over Time",
-       subtitle="For Ages 10, 20, 30, and 40",
+  labs(title="Ratio of Male to Female Mortality Rates",
+       subtitle="Over Time For Ages 10, 20, 30, and 40",
        y="Male to Female Mortality Rates")
 
 ```
@@ -73,7 +74,7 @@ pdata4=tot_deaths %>% left_join(totals) %>%
 pdata4 %>% ggplot(aes(x=Year,y=Mortality,color=Sex))+geom_line()+
   labs(title="Population Weighted Average Mortality Rate Over Time",
        subtitle="For Males and Females",
-       y="Population Weighted Average Mortality Rate Over Time")
+       y="Population Weighted Average Mortality Rate")
 
 ```
 
