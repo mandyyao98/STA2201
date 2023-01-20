@@ -1,0 +1,174 @@
+---
+title: "Lab 2"
+format: pdf
+editor: visual
+---
+
+## 
+
+```{r}
+#| message: false
+#| warning: false
+library(opendatatoronto)
+library(tidyverse)
+library(stringr)
+library(skimr) # EDA
+library(visdat) # EDA
+library(janitor)
+library(lubridate)
+library(ggrepel)
+library(dplyr)
+# obtained code from searching data frame above
+res <- list_package_resources("996cfe8d-fb35-40ce-b569-698d51fc683b") 
+res <- res |> mutate(year = str_extract(name, "202.?"))
+delay_2022_ids <- res |> filter(year==2022) |> select(id) |> pull()
+delay_2022 <- get_resource(delay_2022_ids)
+# make the column names nicer to work with
+delay_2022 <- clean_names(delay_2022)
+delay_codes <- get_resource("3900e649-f31e-4b79-9f20-4731bbfd94f7")
+delay_data_codebook <- get_resource("ca43ac3d-3940-4315-889b-a9375e7b8aa4")
+delay_2022=delay_2022 %>% distinct()
+delay_2022 <- delay_2022 |> filter(line %in% c("BD", "YU", "SHP", "SRT"))
+```
+
+## 1.
+
+```{r}
+#| message: false
+#| warning: false
+#| fig.height: 6
+delay_2022 |>
+  group_by(line, station) |>
+  summarise(mean_delay = mean(min_delay)) |>
+  arrange(-mean_delay) |>
+  slice(1:5) |>
+  ggplot(aes(x = station,
+             y = mean_delay)) +
+  geom_col() + 
+  facet_wrap(vars(line), 
+             scales = "free_y",
+             nrow = 4) +
+  coord_flip()
+```
+
+## 2.
+
+```{r}
+#| message: false
+all_data <- list_packages(limit = 500)
+# obtained code from searching data frame above
+res2=list_package_resources("f6651a40-2f52-46fc-9e04-b760c16edd5c")
+# obtained this code from the 'id' column in the `res2` object above
+mayo=get_resource("5b230e92-0a22-4a15-9572-0b19cc222985")
+# just keep the data that relates to the Mayor election
+mayo=mayo$"2_Mayor_Contributions_2014_election.xls"
+```
+
+## 3.
+
+```{r}
+library(janitor)
+# fix 1st row of column names
+mayo=mayo %>% row_to_names(row_number=1)
+# clean up data format
+mayo=clean_names(mayo)
+```
+
+## 4.
+
+```{r}
+# Summarize the variables in the dataset
+skim(mayo)
+# create numeric contribution amount variable
+mayo=mayo %>% mutate(num_contribution_amount=as.numeric(contribution_amount))
+```
+
+There are missing values for the contributors_address, goods_or_service_desc, relationship_to_candidate, president_business_manager, authorized_representative and ward variables. However, we should not be worried about them since the majority of the values are missing for each of these variables, so for our purposes we can perform our analyses without these variables. The contribution_amount variable is in the character format instead of the numeric format, so we add the variable num_contribution_amount which is the contribution_amount variable in the numeric format.
+
+## 5.
+
+```{r}
+#| message: false
+#| warning: false
+# histogram of contribution amounts
+ggplot(data = mayo) + 
+  geom_histogram(aes(x = num_contribution_amount, y = ..density..), 
+                 position = 'dodge') 
+
+```
+
+The plot above shows a histogram of the contribution amounts. From the plot, we can see that there are very large contributions that are outliers. We also show the contributors name, contribution type, contributor type, relationship to candidate, candidate and contribution amounts for the top 10 contribution amounts. All these contributions are monetary with an individual contributor type, and the contributions were all made by the candidates themselves.
+
+```{r}
+#| message: false
+#| warning: false
+mayo %>% arrange(-num_contribution_amount) %>% select(contributors_name,
+                                                      contribution_type_desc,
+                                                      contributor_type_desc,
+                                                      relationship_to_candidate,
+                                                      candidate,
+                                                      num_contribution_amount)
+```
+
+Below, we plot the histogram of the contribution amounts with the outliers removed (contributions over \$6000).
+
+```{r}
+#| message: false
+#| warning: false
+mayo2=mayo %>% filter(num_contribution_amount<=6000)
+ggplot(data = mayo2) + 
+  geom_histogram(aes(x = num_contribution_amount, y = ..density..), 
+                 position = 'dodge') 
+```
+
+With the outliers removed, it is easier to see the distribution of the rest of the contributions.
+
+## 6.
+
+```{r}
+# top five candidates in total contributions
+mayo %>% group_by(candidate) %>% 
+  summarize(total_contribution=sum(num_contribution_amount)) %>% 
+  arrange(-total_contribution) %>% slice(1:5)
+# top five candidates in mean contribution
+mayo %>% group_by(candidate) %>% 
+  summarize(mean_contribution=mean(num_contribution_amount)) %>% 
+  arrange(-mean_contribution) %>% slice(1:5)
+# top five candidates in number of contributions
+mayo %>% group_by(candidate) %>% 
+  summarize(num_contribution=n()) %>% 
+  arrange(-num_contribution) %>% slice(1:5)
+```
+
+## 7.
+
+```{r}
+#| message: false
+#| warning: false
+# remove contributions from candidates themselves
+q7_mayo=mayo %>% filter(relationship_to_candidate =="Spouse"|
+                          is.na(relationship_to_candidate))
+# top five candidates in total contributions
+q7_mayo %>% group_by(candidate) %>% 
+  summarize(total_contribution=sum(num_contribution_amount)) %>% 
+  arrange(-total_contribution) %>% slice(1:5)
+# top five candidates in mean contribution
+q7_mayo %>% group_by(candidate) %>% 
+  summarize(mean_contribution=mean(num_contribution_amount)) %>% 
+  arrange(-mean_contribution) %>% slice(1:5)
+# top five candidates in number of contributions
+q7_mayo %>% group_by(candidate) %>% 
+  summarize(num_contribution=n()) %>% 
+  arrange(-num_contribution) %>% slice(1:5)
+```
+
+## 8.
+
+```{r}
+q8_mayo=mayo %>% group_by(contributors_name) %>% 
+  summarize(count=n_distinct(candidate)) %>% filter(count>1) %>% 
+  arrange(-count)
+nrow(q8_mayo)
+```
+
+184 contributors gave money to more than one candidate.
