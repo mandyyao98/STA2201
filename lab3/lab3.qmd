@@ -1,0 +1,96 @@
+---
+title: "lab3"
+format: pdf
+editor: visual
+---
+
+## Question 1.
+
+Since the likelihood is proportional to $\theta^y(1-\theta)^{n-y}$, the log-likelihood is
+
+$$
+l=y\log\theta+(n-y)\log(1-\theta).
+$$
+
+Then
+
+$$
+\frac{\partial l}{\partial\theta}=\frac{y}{\theta}+\frac{n-y}{1-\theta}.
+$$
+
+Setting this to 0, we obtain $\hat\theta=\frac{y}{n}=\frac{118}{129}\approx0.91$.
+
+We can calculate the Wald 95% confidence interval
+
+$$
+\hat\theta\pm1.96\sqrt{\frac{\hat\theta(1-\hat\theta)}{n}}=0.91\pm1.96\sqrt{\frac{0.91(1-0.91)}{129}}=(0.87,0.96).
+$$
+
+## Question 2.
+
+Since we have a Beta(1,1) (or Unif(0,1)) prior, $p(\theta)=1$ so we have exactly the example from class, where we obtain the posterior $\theta|y\sim Beta(y+1,n-y+1)$. Then the posterior mean for $\hat\theta$ is
+
+$$
+E(\theta|y)=\frac{y+1}{y+1+n-y+1}=\frac{y+1}{n+2}=\frac{118+1}{129+2}\approx0.91.
+$$
+
+We then find a 95% credible interval:
+
+```{r}
+p=c(0.025,0.975)
+qbeta(p = p, shape1 = 119, shape2 = 12)
+```
+
+## Question 3.
+
+The Beta(10,10) prior assumes that we have prior knowledge of the proportion of women who are happy being more likely to be near 0.5. It also assumes that this value is between 0 and 1 (which should be the case since this is a proportion). We are assuming that we know more than the prior used in question 2 since this prior assumes the proportion is more likely to be near 0.5 while the Beta(1,1) prior does not give preference to any range of proportions.
+
+## Question 4.
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+```
+
+We plot the likelihood, prior and posterior in question 2:
+
+```{r}
+#| warning: false
+colors=c("prior"="blue","posterior"="green","likelihood"="red")
+success=0:129
+l=data.frame(x=success/129,y=dbinom(success,129,0.91))
+ggplot(l,aes(x=x,y=y))+geom_line(aes(col="likelihood"))+ylim(0,20)+xlim(0,1)+
+  geom_function(fun = dunif,aes(col="prior"))+
+  geom_function(fun=dbeta,args=list(shape1=119,shape2=12),aes(col="posterior"))+
+  labs(x="theta",y="density")
+```
+
+To get the posterior for the Beta(10,10) prior, we get that
+
+$$
+p(\theta|y) \propto p(y|\theta)p(\theta)\propto \theta^y(1-\theta)^{n-y}\theta^{10-1}(1-\theta)^{10-1}=\theta^{y+9}(1-\theta)^{n+9-y}
+$$
+
+so $\theta|y\sim Beta(y+10,n-y+10)$.
+
+We then plot the likelihood, prior and posterior together:
+
+```{r}
+#| warning: false
+colors=c("prior"="blue","posterior"="green","likelihood"="red")
+success=0:129
+l=data.frame(x=success/129,y=dbinom(success,129,0.91))
+ggplot(l,aes(x=x,y=y))+geom_line(aes(col="likelihood"))+ylim(0,20)+xlim(0,1)+
+  geom_function(fun = dbeta,args=list(shape1=10,shape2=10),aes(col="prior"))+
+  geom_function(fun=dbeta,args=list(shape1=128,shape2=21),aes(col="posterior"))+
+  labs(x="theta",y="density")
+```
+
+From the plots, we can see that the peak of the posterior shifts towards 0 when the Beta(10,10) prior is used. It uses the more informative Beta(10,10) prior to obtain a different posterior than with the Beta(1,1) prior.
+
+## Question 5.
+
+A noninformative prior would be a uniform distribution on an infinite interval since this distribution does not give any information on what $\theta$ could be.
+
+An informative prior could be the Beta(2,5) distribution, since this restricts $\theta$ to be between 0 and 1 and it also assumes that people are more likely to have a smaller improvement in the proportion of shots made than a large one (but allows for that possibility) while implying that people would increase and not decrease the proportion of shots made after a month of practice.
