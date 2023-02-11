@@ -1,0 +1,194 @@
+---
+title: "lab5"
+format: pdf
+editor: visual
+execute: 
+  warning: false
+  message: false
+---
+
+```{r}
+library(tidyverse)
+library(rstan)
+library(tidybayes)
+library(here)
+```
+
+## Question 1
+
+The first plot shows a histogram of the test scores filled with red if the mom completed high school and with blue if the mom did not. For the most part, the proportion of moms completing high school did not change much with test scores. However, for high test scores, the majority of moms completed high school.
+
+```{r}
+kidiq <- read_rds(here("kidiq.RDS"))
+ggplot(data=kidiq) + 
+  geom_histogram(aes(x = kid_score, y = ..density..,fill=as.factor(mom_hs)))
+```
+
+The next graph shows a histogram of the moms' IQ scores filled with red if the mom completed high school and with blue if the mom did not. Here, we can see that there is a higher proportion of high school completion for moms with higher IQ scores.
+
+```{r}
+ggplot(data=kidiq) + 
+  geom_histogram(aes(x = mom_iq, y = ..density..,fill=as.factor(mom_hs)))
+```
+
+The following plot shows a scatterplot for the test score and mom's IQ variables. It shows that there may be a relationship between the variables where test scores increase as moms' IQ increase.
+
+```{r}
+ggplot(data=kidiq) + geom_point(aes(x=mom_iq,y=kid_score))
+```
+
+## Question 2
+
+```{r}
+#| output: false
+y <- kidiq$kid_score
+mu0 <- 80
+sigma0 <- 10
+sigma1=0.1
+
+# named list to input for stan function
+data <- list(y = y, 
+             N = length(y), 
+             mu0 = mu0,
+             sigma0 = sigma0)
+fit <- stan(file = here("kids2.stan"),
+            data = data,
+            chains = 3,
+            iter = 500)
+data2=list(y = y, 
+             N = length(y), 
+             mu0 = mu0,
+             sigma0 = sigma1)
+fitb=stan(file = here("kids2.stan"),
+            data = data2,
+            chains = 3,
+            iter = 500)
+```
+
+```{r}
+summary(fit)$summary
+summary(fitb)$summary
+```
+
+From the summaries of the fits, we can see that with the more informative prior, the mu estimate decreased to be closer to the mu0 value 80. The standard error of this estimate also decreased. The estimate for sigma did not change much however.
+
+The following plots show the prior and posterior densities for the mean test scores and sigma.
+
+```{r}
+dsamples <- fit  |> 
+  gather_draws(mu, sigma) # gather = long format
+dsamples |> 
+  filter(.variable == "mu") |> 
+  ggplot(aes(.value, color = "posterior")) + geom_density(size = 1) + 
+  xlim(c(70, 100)) + 
+  stat_function(fun = dnorm, 
+                args = list(mean = mu0, 
+                            sd = sigma0), 
+                aes(colour = 'prior'), size = 1) +
+  scale_color_manual(name = "", 
+  values = c("prior" = "red", "posterior" = "black")) + 
+  ggtitle("Prior and posterior for mean test scores") + 
+  xlab("score")
+dsamples |> 
+  filter(.variable == "sigma") |> 
+  ggplot(aes(.value, color = "posterior")) + geom_density(size = 1) + 
+  xlim(c(-30,30)) + 
+  stat_function(fun = dnorm, 
+                args = list(mean = 0, 
+                            sd = 10), 
+                aes(colour = 'prior'), size = 1) +
+  scale_color_manual(name = "", 
+                     values = c("prior" = "red", "posterior" = "black")) + 
+  ggtitle("Prior and posterior for sigma") + 
+  xlab("score")
+```
+
+## Question 3
+
+### a)
+
+```{r}
+#| output: false
+X <- as.matrix(kidiq$mom_hs, ncol = 1) # force this to be a matrix
+K <- 1
+
+data <- list(y = y, N = length(y), 
+             X =X, K = K)
+fit2 <- stan(file = here("kids3.stan"),
+             data = data, 
+             iter = 1000)
+```
+
+```{r}
+summary(fit2)$summary
+summary(lm(kid_score~mom_hs,data=kidiq))
+```
+
+From the summaries of the fits above, we can see that the estimates of the intercept and slope are comparable.
+
+### b)
+
+```{r}
+pairs(fit2, pars = c("alpha", "beta"))
+```
+
+From the `pairs` plot, we can see that changes in the slope would induce the opposite change in the intercept, which would make it hard to interpret what the intercepts mean. The correlation makes it harder to sample.
+
+## Question 4
+
+```{r}
+#| output: false
+data <- list(y = y, N = length(y), 
+             X =cbind(as.matrix(kidiq$mom_hs), 
+                      as.matrix(kidiq$mom_iq - mean(kidiq$mom_iq))), K = 2)
+fit3 <- stan(file = here("kids3.stan"),
+             data = data, 
+             iter = 1000)
+```
+
+```{r}
+summary(fit3)$summary
+```
+
+For this fit of the model, we get that for a given outcome of mother's high school completion, each IQ point above the mean IQ score of 100 is associated with a mean increase in test score by 0.56.
+
+## Question 5
+
+```{r}
+kidiq5=kidiq %>% mutate(z_mom_iq=mom_iq-mean(mom_iq))
+summary(lm(kid_score~mom_hs+z_mom_iq,data=kidiq5))
+```
+
+From these results, we can see that the estimates are similar to those obtained in question 4.
+
+## Question 6
+
+The following plot shows the posterior estimates of scores by education of mother for mothers who have an IQ of 110.
+
+```{r}
+post_samples=extract(fit3)
+nhs=post_samples$alpha+10*post_samples$beta[,2]
+hs=post_samples$alpha+post_samples$beta[,1]+10*post_samples$beta[,2]
+data6=tibble(nhs,hs)
+ data6|> 
+  pivot_longer(nhs:hs, names_to = "education", 
+               values_to = "estimated_score") |> 
+  ggplot(aes(y = education, x = estimated_score)) +
+  stat_halfeye() + 
+  theme_bw() + 
+  ggtitle("Posterior estimates of scores by education level")
+```
+
+## Question 7
+
+The following histogram shows samples from the posterior predictive distribution for a new kid with a mother who graduated high school and has an IQ of 95.
+
+```{r}
+sigma=post_samples$sigma
+alpha=post_samples$alpha
+beta1=post_samples$beta[,1]
+beta2=post_samples$beta[,2]
+lin_pred=alpha+beta1-5*beta2
+y_new <- rnorm(n = length(sigma),mean = lin_pred, sd = sigma)
+hist(y_new)
+```
