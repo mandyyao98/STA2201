@@ -1,0 +1,316 @@
+---
+title: "Lab 6"
+date: today
+date-format: "DD/MM/YY"
+format: pdf
+execute: 
+  warning: false
+  message: false
+---
+
+
+```{r}
+library(tidyverse)
+library(here)
+# for bayes stuff
+library(rstan)
+library(bayesplot) 
+library(loo) 
+library(tidybayes) 
+
+ds <- read_rds(here("births_2017_sample.RDS"))
+```
+
+
+```{r}
+ds <- ds %>% 
+  rename(birthweight = dbwt, gest = combgest) %>% 
+  mutate(preterm = ifelse(gest<32, "Y", "N")) %>% 
+  filter(ilive=="Y",gest< 99, birthweight<9.999)
+```
+
+
+## Question 1
+The following plot shows a scatterplot of the log gestational age and log birth weight, split by whether the baby was born prematurely. We can see some evidence of a relationship between log gestational age and log birth weight, and of interaction between log gestational age and whether the baby was born prematurely.
+
+```{r}
+ds %>% 
+  ggplot(aes(log(gest), log(birthweight), color = preterm)) + 
+  geom_point() + geom_smooth(method = "lm") + 
+  scale_color_brewer(palette = "Set1") + 
+  theme_bw(base_size = 14) + 
+  ggtitle("birthweight v gestational age")
+```
+
+The following plot shows a scatterplot of the log gestational age and log birth weight, split by the sex of the baby. Here, we do not see as much evidence of interaction between log gestational age and the sex of the baby. We see that males with low gestational age may weigh a bit more than females at the same gestational age, but that this difference reduces as gestational age increases.
+
+```{r}
+ds %>% 
+  ggplot(aes(log(gest), log(birthweight), color = sex)) + 
+  geom_point() + geom_smooth(method = "lm") + 
+  scale_color_brewer(palette = "Set1") + 
+  theme_bw(base_size = 14) + 
+  ggtitle("birthweight v gestational age")
+```
+
+The following plot shows a scatterplot of the mum's age and log gestational age. We see a bit of evidence of a relationship between the two variables, since gestational age seems to decrease slightly age mum's age increases. 
+
+```{r}
+ds %>% 
+  ggplot(aes(mager, log(gest))) + 
+  geom_point() + geom_smooth(method = "lm") + 
+  scale_color_brewer(palette = "Set1") + 
+  theme_bw(base_size = 14) +
+  ggtitle("gestational age v mum's age")
+```
+
+
+## Question 2
+
+```{r}
+set.seed(123)
+nsims <- 1000
+sigma <- abs(rnorm(nsims, 0, 1))
+beta0 <- rnorm(nsims, 0, 1)
+beta1 <- rnorm(nsims, 0, 1)
+
+dsims <- tibble(log_gest_c = (log(ds$gest)-mean(log(ds$gest)))/sd(log(ds$gest)))
+
+for(i in 1:nsims){
+  this_mu <- beta0[i] + beta1[i]*dsims$log_gest_c 
+  dsims[paste0(i)] <- this_mu + rnorm(nrow(dsims), 0, sigma[i])
+}
+
+dsl <- dsims %>% 
+  pivot_longer(`1`:`10`, names_to = "sim", values_to = "sim_weight")
+
+dsl1 <- dsims %>% 
+  pivot_longer(`1`:`1000`, names_to = "sim", values_to = "sim_weight")
+
+dsl1 %>% 
+  ggplot(aes(sim_weight)) + geom_histogram(aes(y = ..density..), bins = 20, 
+                                           fill = "turquoise", color = "black") + 
+  theme_bw(base_size = 14) 
+
+```
+
+The next plot shows ten simulations of (log) birthweights plotted against gestational age. 
+
+```{r}
+dsl %>% 
+  ggplot(aes(x=log_gest_c,y=sim_weight,color=sim))+geom_point()+ 
+  geom_smooth(method = "lm") 
+```
+
+
+# Run the model
+
+First, we run model 1.
+
+```{r}
+ds$log_weight <- log(ds$birthweight)
+ds$log_gest_c <- (log(ds$gest) - mean(log(ds$gest)))/sd(log(ds$gest))
+
+N <- nrow(ds)
+log_weight <- ds$log_weight
+log_gest_c <- ds$log_gest_c 
+preterm <- ifelse(ds$preterm=="Y", 1, 0)
+
+# put into a list
+stan_data <- list(N = N,
+                  log_weight = log_weight,
+                  log_gest = log_gest_c, 
+                  preterm = preterm)
+```
+
+
+```{r}
+#| output: false
+mod1 <- stan(data = stan_data, 
+             file = here("simple_weight.stan"),
+             iter = 1000,
+             seed = 243)
+```
+
+```{r}
+summary(mod1)$summary[c("beta[1]", "beta[2]", "sigma"),]
+```
+
+## Question 3
+Since the model is given by
+
+$$
+\log(y_i) \sim N(\beta_1 + \beta_2\log(x_i), \sigma^2)
+$$
+First, we standardize the log gestational age of 37:
+```{r}
+(log(37) - mean(log(ds$gest)))/sd(log(ds$gest))
+```
+
+The log of the estimate of the expected birthweight of a baby who was born at a gestational age of 37 weeks is given by $1.16+(0.14*(-0.59))=1.08$, so the estimate is $e^{1.08}=2.94$ kg.
+
+## Question 4
+
+```{r}
+#| output: false
+mod2a <- stan(data = stan_data, 
+             file = "simple_weight_preterm_int.stan",
+             iter = 1000,
+             seed = 263)
+```
+
+```{r}
+summary(mod2a)$summary[c(paste0("beta[", 1:4, "]"), "sigma"),]
+```
+
+
+## Question 5
+
+From the summary statistics below, we can see that the results are similar, except it seems like beta[2] and beta[3] have been switched between the two models. 
+ 
+```{r}
+load(here("mod2.Rda"))
+summary(mod2)$summary[c(paste0("beta[", 1:4, "]"), "sigma"),]
+```
+
+## Question 6
+
+```{r}
+set.seed(1856)
+yrep1 <- extract(mod1)[["log_weight_rep"]] 
+yrep2 <- extract(mod2a)[["log_weight_rep"]] 
+samp100 <- sample(nrow(yrep2), 100)
+# first, get into a tibble
+rownames(yrep2) <- 1:nrow(yrep2)
+dr <- as_tibble(t(yrep2))
+dr <- dr %>% bind_cols(i = 1:N, log_weight_obs = log(ds$birthweight))
+
+# turn into long format; easier to plot
+dr <- dr %>% 
+  pivot_longer(-(i:log_weight_obs), names_to = "sim", values_to ="y_rep")
+
+# filter to just include 100 draws and plot!
+dr %>% 
+  filter(sim %in% samp100) %>% 
+  ggplot(aes(y_rep, group = sim)) + 
+  geom_density(alpha = 0.2, aes(color = "y_rep")) + 
+  geom_density(data = ds %>% mutate(sim = 1), 
+               aes(x = log(birthweight), col = "y")) + 
+  scale_color_manual(name = "", 
+                     values = c("y" = "darkblue", 
+                                "y_rep" = "lightblue")) + 
+  ggtitle("Distribution of observed and replicated birthweights") + 
+  theme_bw(base_size = 12)
+```
+
+
+## Question 7
+
+We plot the test statistic of the proportion of births under 2.5kg for the data and the posterior predictive samples for model 1.
+
+```{r}
+y <- log_weight
+t_y <- mean(y<=log(2.5))
+t_y_rep <- sapply(1:nrow(yrep1), function(i) mean(yrep1[i,]<=log(2.5)))
+t_y_rep_2 <- sapply(1:nrow(yrep2), function(i) mean(yrep2[i,]<=log(2.5)))
+
+ggplot(data = as_tibble(t_y_rep), aes(value)) + 
+    geom_histogram(aes(fill = "replicated")) + 
+    geom_vline(aes(xintercept = t_y, color = "observed"), lwd = 1.5) + 
+  ggtitle("Model 1: proportion of births less than 2.5kg") + 
+  theme_bw(base_size = 14) + 
+  scale_color_manual(name = "", 
+                     values = c("observed" = "darkblue"))+
+  scale_fill_manual(name = "", 
+                     values = c("replicated" = "lightblue")) 
+```
+
+We do the same thing for model 2.
+
+```{r}
+ggplot(data = as_tibble(t_y_rep_2), aes(value)) + 
+    geom_histogram(aes(fill = "replicated")) + 
+    geom_vline(aes(xintercept = t_y, color = "observed"), lwd = 1.5) + 
+  ggtitle("Model 2: proportion of births less than 2.5kg") + 
+  theme_bw(base_size = 14) + 
+  scale_color_manual(name = "", 
+                     values = c("observed" = "darkblue"))+
+  scale_fill_manual(name = "", 
+                     values = c("replicated" = "lightblue")) 
+```
+
+## Question 8
+We add a term for the sex of the baby and an interaction between the sex and gestation of the baby to the model:
+
+$$
+\log(y_i) \sim N(\beta_1 + \beta_2\log(x_i) + \beta_2 s_i + \beta_3\log(x_i) s_i, \sigma^2)
+$$
+
+- $y_i$ is weight in kg
+- $x_i$ is gestational age in weeks, centered and standardized
+- $s_i$ is sex (0 for female, 1 for male)
+
+We run the model in Stan:
+
+```{r}
+sex <- ifelse(ds$sex=="M", 1, 0)
+
+# put into a list
+stan_data3 <- list(N = N,
+                  log_weight = log_weight,
+                  log_gest = log_gest_c, 
+                  sex=sex)
+```
+
+```{r}
+#| output: false
+mod3 <- stan(data = stan_data3, 
+             file = "lab6q8.stan",
+             iter = 1000,
+             seed = 263)
+```
+```{r}
+summary(mod3)$summary[c(paste0("beta[", 1:4, "]"), "sigma"),]
+```
+
+
+First, we extract the samples from the posterior predictive distribution and compare the densities of 100 sampled datasets to the actual data.
+```{r}
+yrep3 <- extract(mod3)[["log_weight_rep"]]
+ppc_dens_overlay(y, yrep3[samp100, ])  
+```
+
+We show the same plot for model 2 and find that the densities of the sampled datasets for model 2 are closer to the actual data then for our new model.
+```{r}
+ppc_dens_overlay(y, yrep2[samp100, ])
+```
+
+Next, we calculate the proportion of babies who have a weight less than 2.5kg (considered low birth weight) in each of the replicated datasets, and compare them to the proportion in the data. 
+```{r}
+t_y_rep_3 <- sapply(1:nrow(yrep3), function(i) mean(yrep3[i,]<=log(2.5)))
+ggplot(data = as_tibble(t_y_rep_3), aes(value)) + 
+    geom_histogram(aes(fill = "replicated")) + 
+    geom_vline(aes(xintercept = t_y, color = "observed"), lwd = 1.5) + 
+  ggtitle("Model 3: proportion of births less than 2.5kg") + 
+  theme_bw(base_size = 14) + 
+  scale_color_manual(name = "", 
+                     values = c("observed" = "darkblue"))+
+  scale_fill_manual(name = "", 
+                     values = c("replicated" = "lightblue")) 
+```
+
+We do the same thing for model 2 and find that model 2 still does better here.
+```{r}
+t_y_rep_3 <- sapply(1:nrow(yrep2), function(i) mean(yrep2[i,]<=log(2.5)))
+ggplot(data = as_tibble(t_y_rep_2), aes(value)) + 
+    geom_histogram(aes(fill = "replicated")) + 
+    geom_vline(aes(xintercept = t_y, color = "observed"), lwd = 1.5) + 
+  ggtitle("Model 2: proportion of births less than 2.5kg") + 
+  theme_bw(base_size = 14) + 
+  scale_color_manual(name = "", 
+                     values = c("observed" = "darkblue"))+
+  scale_fill_manual(name = "", 
+                     values = c("replicated" = "lightblue")) 
+```
+
+
